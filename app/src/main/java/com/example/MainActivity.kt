@@ -21,10 +21,21 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Surface
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.rounded.CalendarMonth
@@ -107,8 +118,10 @@ import com.example.ui.theme.GoldenYellow
 import com.example.ui.theme.YusufElectronicsTheme
 import com.example.ui.viewmodel.UiState
 import com.example.ui.viewmodel.YusufMainViewModel
+import com.example.data.seed.DefaultCatalogData
 import com.example.util.LocalNotificationHelper
 import com.google.firebase.Firebase
+import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FirebaseFirestore
@@ -144,37 +157,57 @@ class MainActivity : ComponentActivity() {
             val scope = rememberCoroutineScope()
             LaunchedEffect(Unit) {
                 withContext(Dispatchers.IO) {
-                    LocalNotificationHelper.ensureChannel(context.applicationContext)
+                    runCatching { LocalNotificationHelper.ensureChannel(context.applicationContext) }
                 }
             }
             val prefsRepository = remember(context) { UserPreferencesRepository(context.applicationContext) }
             val language by prefsRepository.languageFlow.collectAsStateWithLifecycle(initialValue = AppLanguage.BANGLA)
             val strings = if (language == AppLanguage.BANGLA) BanglaStrings else EnglishStrings
 
-            val authFlow = remember { Firebase.auth.authStateFlow() }
-            val currentUser by authFlow
-                .collectAsStateWithLifecycle(initialValue = Firebase.auth.currentUser)
+            val isFirebaseReady = remember(context) {
+                try {
+                    FirebaseApp.getApps(context).isNotEmpty() || FirebaseApp.initializeApp(context) != null
+                } catch (_: Throwable) {
+                    false
+                }
+            }
 
             YusufElectronicsTheme {
                 CompositionLocalProvider(LocalAppStrings provides strings) {
-                    val user = currentUser
-                    if (user == null) {
-                        AuthScreen(
+                    if (!isFirebaseReady) {
+                        FirebaseUnconfiguredScreen(
                             isBangla = language == AppLanguage.BANGLA,
                             onToggleLanguage = {
                                 scope.launch {
                                     val next = if (language == AppLanguage.BANGLA) AppLanguage.ENGLISH else AppLanguage.BANGLA
                                     prefsRepository.setLanguage(next)
                                 }
-                            },
-                            onAuthSuccess = {}
+                            }
                         )
                     } else {
-                        key(user.uid) {
-                            AuthenticatedRoot(
-                                user = user,
-                                prefsRepository = prefsRepository
+                        val authFlow = remember { Firebase.auth.authStateFlow() }
+                        val initialUser = remember { runCatching { Firebase.auth.currentUser }.getOrNull() }
+                        val currentUser by authFlow
+                            .collectAsStateWithLifecycle(initialValue = initialUser)
+                        val user = currentUser
+                        if (user == null) {
+                            AuthScreen(
+                                isBangla = language == AppLanguage.BANGLA,
+                                onToggleLanguage = {
+                                    scope.launch {
+                                        val next = if (language == AppLanguage.BANGLA) AppLanguage.ENGLISH else AppLanguage.BANGLA
+                                        prefsRepository.setLanguage(next)
+                                    }
+                                },
+                                onAuthSuccess = {}
                             )
+                        } else {
+                            key(user.uid) {
+                                AuthenticatedRoot(
+                                    user = user,
+                                    prefsRepository = prefsRepository
+                                )
+                            }
                         }
                     }
                 }
@@ -190,7 +223,7 @@ private fun AuthenticatedRoot(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val credentialManager = remember(context) { CredentialManager.create(context) }
+    val credentialManager = remember(context) { runCatching { CredentialManager.create(context) }.getOrNull() }
 
     val viewModel: YusufMainViewModel = viewModel(
         key = user.uid,
@@ -893,6 +926,117 @@ private fun YusufAppShell(
                             )
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FirebaseUnconfiguredScreen(
+    isBangla: Boolean,
+    onToggleLanguage: () -> Unit
+) {
+    val strings = LocalAppStrings.current
+    val categories = remember { DefaultCatalogData.defaultCategoryModels() }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Surface(
+            color = DeepNavy,
+            shape = RoundedCornerShape(22.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(18.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        BrandLogoMark(sizeDp = 48)
+                        Spacer(Modifier.size(12.dp))
+                        Column {
+                            Text(
+                                text = strings.brandName,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = GoldenYellow
+                            )
+                            Text(
+                                text = strings.tagline,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.White.copy(alpha = 0.85f)
+                            )
+                        }
+                    }
+                    FilterChip(
+                        selected = false,
+                        onClick = onToggleLanguage,
+                        label = { Text(strings.switchLangAction, color = Color.White) }
+                    )
+                }
+            }
+        }
+
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E1)),
+            shape = RoundedCornerShape(18.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = if (isBangla) {
+                        "Firebase ক্লাউড কনফিগারেশন যুক্ত নেই"
+                    } else {
+                        "Firebase Cloud Config Not Bundled"
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                    color = DeepNavy
+                )
+                Text(
+                    text = if (isBangla) {
+                        "এই APK-টি GitHub থেকে google-services.json ছাড়াই তৈরি হয়েছে, তাই লগইন ও ক্লাউড চ্যাট চালু করতে দুটি উপায়ের একটি অনুসরণ করুন:\n১) AI Studio -> Settings -> Download/Generate APK থেকে সম্পূর্ণ APK ডাউনলোড করুন।\n২) অথবা GitHub Repository Secrets-এ GOOGLE_SERVICES_JSON যোগ করে পুনরায় APK বিল্ড করুন।"
+                    } else {
+                        "This APK was built on GitHub without google-services.json. To enable Google Sign-In, live chat, and cloud bookings:\n1) Download the APK directly from AI Studio Settings -> Generate APK.\n2) Or add GOOGLE_SERVICES_JSON to GitHub Repository Secrets and rebuild."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = DeepNavy
+                )
+            }
+        }
+
+        Text(
+            text = strings.allServices,
+            style = MaterialTheme.typography.titleMedium,
+            color = DeepNavy
+        )
+        categories.forEach { cat ->
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text(
+                        text = cat.localizedName(isBangla),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = DeepNavy
+                    )
+                    Text(
+                        text = cat.localizedDescription(isBangla),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }

@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -94,7 +95,9 @@ fun AuthScreen(
     val strings = LocalAppStrings.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val credentialManager = remember(context) { CredentialManager.create(context) }
+    val credentialManager = remember(context) {
+        runCatching { CredentialManager.create(context) }.getOrNull()
+    }
 
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -102,13 +105,15 @@ fun AuthScreen(
     LaunchedEffect(Unit) {
         withFrameNanos { }
         delay(350L)
-        attemptAutoSignIn(
-            context = context,
-            credentialManager = credentialManager,
-            onAuthSuccess = onAuthSuccess,
-            onUnauthenticated = {},
-            scope = scope
-        )
+        if (credentialManager != null) {
+            attemptAutoSignIn(
+                context = context,
+                credentialManager = credentialManager,
+                onAuthSuccess = onAuthSuccess,
+                onUnauthenticated = {},
+                scope = scope
+            )
+        }
     }
 
     Box(
@@ -236,6 +241,10 @@ fun AuthScreen(
 
                     Button(
                         onClick = {
+                            if (credentialManager == null) {
+                                errorMessage = "Google Credential Manager is unavailable on this device."
+                                return@Button
+                            }
                             isLoading = true
                             errorMessage = null
                             onInteractiveSignInClicked(
@@ -503,7 +512,13 @@ private fun attemptAutoSignIn(
     onUnauthenticated: () -> Unit,
     scope: CoroutineScope
 ) {
-    if (Firebase.auth.currentUser != null) {
+    val alreadySignedIn = try {
+        Firebase.auth.currentUser != null
+    } catch (_: Throwable) {
+        onUnauthenticated()
+        return
+    }
+    if (alreadySignedIn) {
         onAuthSuccess()
         return
     }
@@ -535,7 +550,7 @@ private fun attemptAutoSignIn(
             } else {
                 onUnauthenticated()
             }
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
             onUnauthenticated()
         }
     }
@@ -560,9 +575,10 @@ private fun onInteractiveSignInClicked(
         .addCredentialOption(signInOption)
         .build()
 
+    val activityOrContext = context.findActivity() ?: context
     scope.launch {
         try {
-            val result = credentialManager.getCredential(context as Activity, request)
+            val result = credentialManager.getCredential(activityOrContext, request)
             val credential = result.credential
             if (credential is CustomCredential && credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                 val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
@@ -575,7 +591,7 @@ private fun onInteractiveSignInClicked(
         } catch (e: GetCredentialCancellationException) {
             Log.w("Auth", "Sign-In flow cancelled or dismissed: ${e.message}", e)
             onAuthCancelled()
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e("Auth", "Sign-In failed", e)
             onAuthError(e.localizedMessage ?: "Sign in failed")
         }
@@ -583,22 +599,28 @@ private fun onInteractiveSignInClicked(
 }
 
 fun signOutUser(
-    credentialManager: CredentialManager,
+    credentialManager: CredentialManager?,
     scope: CoroutineScope,
     onSignOutComplete: () -> Unit = {}
 ) {
     scope.launch {
         withContext(NonCancellable) {
             try {
-                credentialManager.clearCredentialState(ClearCredentialStateRequest())
-            } catch (e: Exception) {
+                credentialManager?.clearCredentialState(ClearCredentialStateRequest())
+            } catch (e: Throwable) {
                 Log.w("Auth", "Failed to clear credential state: ${e.message}")
             } finally {
-                Firebase.auth.signOut()
+                runCatching { Firebase.auth.signOut() }
                 onSignOutComplete()
             }
         }
     }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
 
 @Suppress("DiscouragedApi")

@@ -5,10 +5,13 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
+import java.io.IOException
 
 private val Context.yusufDataStore: DataStore<Preferences> by preferencesDataStore(name = "yusuf_electronics_prefs")
 
@@ -29,13 +32,21 @@ class UserPreferencesRepository(private val context: Context) {
         val NOTIFICATIONS_ENABLED = booleanPreferencesKey("notifications_enabled")
     }
 
-    val languageFlow: Flow<AppLanguage> = context.yusufDataStore.data.map { prefs ->
-        AppLanguage.fromCode(prefs[Keys.LANGUAGE])
-    }
+    val languageFlow: Flow<AppLanguage> = context.yusufDataStore.data
+        .catch { err ->
+            if (err is IOException) emit(emptyPreferences()) else throw err
+        }
+        .map { prefs ->
+            AppLanguage.fromCode(prefs[Keys.LANGUAGE])
+        }
 
-    val notificationsEnabledFlow: Flow<Boolean> = context.yusufDataStore.data.map { prefs ->
-        prefs[Keys.NOTIFICATIONS_ENABLED] ?: true
-    }
+    val notificationsEnabledFlow: Flow<Boolean> = context.yusufDataStore.data
+        .catch { err ->
+            if (err is IOException) emit(emptyPreferences()) else throw err
+        }
+        .map { prefs ->
+            prefs[Keys.NOTIFICATIONS_ENABLED] ?: true
+        }
 
     suspend fun setLanguage(language: AppLanguage) {
         context.yusufDataStore.edit { prefs ->
