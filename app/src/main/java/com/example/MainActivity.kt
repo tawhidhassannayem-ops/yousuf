@@ -208,11 +208,27 @@ private fun AuthenticatedRoot(
     )
 
     val strings = LocalAppStrings.current
+    val isAdmin by viewModel.isAdmin.collectAsStateWithLifecycle()
+    val isAdminResolved by viewModel.isAdminResolved.collectAsStateWithLifecycle()
     val profileState by viewModel.profileState.collectAsStateWithLifecycle()
     val actionError by viewModel.actionError.collectAsStateWithLifecycle()
+    val actionMessage by viewModel.actionMessage.collectAsStateWithLifecycle()
     val isBusy by viewModel.isBusy.collectAsStateWithLifecycle()
     val notifications by viewModel.notifications.collectAsStateWithLifecycle()
     val notificationsEnabled by viewModel.notificationsEnabled.collectAsStateWithLifecycle()
+
+    var adminDirectMode by rememberSaveable(user.uid) { mutableStateOf(true) }
+    val adminSnackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(isAdmin, adminDirectMode, actionError, actionMessage) {
+        if (isAdmin && adminDirectMode) {
+            val msg = actionError ?: actionMessage
+            if (!msg.isNullOrBlank()) {
+                adminSnackbarHostState.showSnackbar(msg)
+                viewModel.clearFeedback()
+            }
+        }
+    }
 
     // Trigger local Android notifications for newly arrived unread items while active
     val knownNotificationIds = remember(user.uid) { mutableStateOf<Set<String>?>(null) }
@@ -235,6 +251,69 @@ private fun AuthenticatedRoot(
             }
             knownNotificationIds.value = prev + currentIds
         }
+    }
+
+    if (!isAdminResolved) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .fillMaxSize()
+                .background(DeepNavy)
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                BrandLogoMark(sizeDp = 96)
+                Spacer(Modifier.height(18.dp))
+                CircularProgressIndicator(color = GoldenYellow)
+            }
+        }
+        return
+    }
+
+    if (isAdmin && adminDirectMode) {
+        val categoriesState by viewModel.categoriesState.collectAsStateWithLifecycle()
+        val servicesState by viewModel.servicesState.collectAsStateWithLifecycle()
+        val businessSettings by viewModel.businessSettings.collectAsStateWithLifecycle()
+        val adminBookings by viewModel.adminAllBookings.collectAsStateWithLifecycle()
+        val adminConversations by viewModel.adminAllConversations.collectAsStateWithLifecycle()
+        val adminSelectedConvId by viewModel.selectedAdminConversationId.collectAsStateWithLifecycle()
+        val adminActiveMessages by viewModel.adminActiveMessages.collectAsStateWithLifecycle()
+        val adminCustomers by viewModel.adminAllCustomers.collectAsStateWithLifecycle()
+        val adminReviews by viewModel.adminAllReviews.collectAsStateWithLifecycle()
+
+        val categories = (categoriesState as? UiState.Success)?.data ?: emptyList()
+        val services = (servicesState as? UiState.Success)?.data ?: emptyList()
+
+        AdminConsoleScreen(
+            bookings = adminBookings,
+            conversations = adminConversations,
+            selectedConversationId = adminSelectedConvId,
+            activeMessages = adminActiveMessages,
+            categories = categories,
+            services = services,
+            customers = adminCustomers,
+            reviews = adminReviews,
+            businessSettings = businessSettings,
+            isRootMode = true,
+            snackbarHostState = adminSnackbarHostState,
+            onSwitchToCustomerView = { adminDirectMode = false },
+            onSignOut = { signOutUser(credentialManager, scope) },
+            onBack = {},
+            onSeedCatalog = viewModel::adminSeedDefaultCatalog,
+            onUpdateBooking = viewModel::adminUpdateBookingStatus,
+            onSelectConversation = viewModel::adminSelectConversation,
+            onSendReply = { customerId, text ->
+                viewModel.adminSendReply(customerId, text)
+            },
+            onSaveCategory = viewModel::adminSaveCategory,
+            onDeleteCategory = viewModel::adminDeleteCategory,
+            onSaveService = viewModel::adminSaveService,
+            onDeleteService = viewModel::adminDeleteService,
+            onUpdateBusinessSettings = viewModel::adminUpdateBusinessSettings,
+            onModerateReview = viewModel::adminModerateReview,
+            onSendAnnouncement = viewModel::adminSendAnnouncement,
+            onUpdateCustomerStatus = viewModel::adminUpdateCustomerStatus
+        )
+        return
     }
 
     when (val state = profileState) {
@@ -278,7 +357,7 @@ private fun AuthenticatedRoot(
 
         is UiState.Success -> {
             val profile = state.data
-            if (profile == null) {
+            if (profile == null && !isAdmin) {
                 ProfileRegistrationScreen(
                     initialName = viewModel.defaultDisplayName,
                     email = viewModel.defaultEmail,
@@ -293,9 +372,17 @@ private fun AuthenticatedRoot(
                     }
                 )
             } else {
+                val effectiveProfile = profile ?: UserProfile(
+                    userId = user.uid,
+                    fullName = viewModel.defaultDisplayName.ifBlank { "Yusuf Admin" },
+                    username = "yusuf_admin",
+                    email = viewModel.defaultEmail,
+                    role = "customer"
+                )
                 YusufAppShell(
-                    profile = profile,
+                    profile = effectiveProfile,
                     viewModel = viewModel,
+                    onOpenAdminRoot = { adminDirectMode = true },
                     onSignOut = {
                         signOutUser(credentialManager, scope)
                     }
@@ -309,6 +396,7 @@ private fun AuthenticatedRoot(
 private fun YusufAppShell(
     profile: UserProfile,
     viewModel: YusufMainViewModel,
+    onOpenAdminRoot: () -> Unit,
     onSignOut: () -> Unit
 ) {
     val strings = LocalAppStrings.current
@@ -608,7 +696,9 @@ private fun YusufAppShell(
                                 },
                                 onOpenContactUs = { secondaryStack.add(SecondaryRoute.ContactUs) },
                                 onOpenMessages = { currentTab = MainTab.MESSAGES },
-                                onOpenMyBookings = { currentTab = MainTab.BOOKINGS }
+                                onOpenMyBookings = { currentTab = MainTab.BOOKINGS },
+                                isAdmin = isAdmin,
+                                onOpenAdminConsole = onOpenAdminRoot
                             )
                         }
 
@@ -673,7 +763,7 @@ private fun YusufAppShell(
                                 onOpenContactUs = { secondaryStack.add(SecondaryRoute.ContactUs) },
                                 onOpenPrivacyPolicy = { secondaryStack.add(SecondaryRoute.PrivacyPolicy) },
                                 onOpenTerms = { secondaryStack.add(SecondaryRoute.Terms) },
-                                onOpenAdminConsole = { secondaryStack.add(SecondaryRoute.AdminConsole) },
+                                onOpenAdminConsole = onOpenAdminRoot,
                                 onLogout = onSignOut,
                                 onDeleteAccount = {
                                     viewModel.deleteAccount(profile.username) {

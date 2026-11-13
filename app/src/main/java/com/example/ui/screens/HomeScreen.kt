@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.automirrored.rounded.Chat
+import androidx.compose.material.icons.rounded.AdminPanelSettings
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Call
@@ -96,6 +97,8 @@ fun HomeScreen(
     onOpenContactUs: () -> Unit,
     onOpenMessages: () -> Unit,
     onOpenMyBookings: () -> Unit,
+    isAdmin: Boolean = false,
+    onOpenAdminConsole: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val strings = LocalAppStrings.current
@@ -206,7 +209,7 @@ fun HomeScreen(
 
                     Spacer(Modifier.height(12.dp))
 
-                    // Live business availability indicator
+                    // Live business availability indicator + Admin Panel switch (for admin users only)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -217,8 +220,37 @@ fun HomeScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = Color.White.copy(alpha = 0.8f),
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
+                        if (isAdmin) {
+                            Surface(
+                                color = GoldenYellow,
+                                shape = RoundedCornerShape(50),
+                                modifier = Modifier
+                                    .clickable(onClick = onOpenAdminConsole)
+                                    .testTag("home_admin_console_chip")
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.AdminPanelSettings,
+                                        contentDescription = null,
+                                        tint = DeepNavy,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        text = strings.adminBadge,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = DeepNavy,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
                     }
 
                     Spacer(Modifier.height(14.dp))

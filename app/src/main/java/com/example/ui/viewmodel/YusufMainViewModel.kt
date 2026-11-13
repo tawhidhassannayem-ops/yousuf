@@ -58,6 +58,9 @@ class YusufMainViewModel(
     private val _isAdmin = MutableStateFlow(false)
     val isAdmin: StateFlow<Boolean> = _isAdmin.asStateFlow()
 
+    private val _isAdminResolved = MutableStateFlow(false)
+    val isAdminResolved: StateFlow<Boolean> = _isAdminResolved.asStateFlow()
+
     private val _actionError = MutableStateFlow<String?>(null)
     val actionError: StateFlow<String?> = _actionError.asStateFlow()
 
@@ -212,8 +215,13 @@ class YusufMainViewModel(
 
     init {
         viewModelScope.launch {
-            val admin = userRepository.checkIsAdmin(currentUserId, currentUserEmail, isEmailVerified)
+            val admin = try {
+                userRepository.checkIsAdmin(currentUserId, currentUserEmail, isEmailVerified)
+            } catch (_: Exception) {
+                false
+            }
             _isAdmin.value = admin
+            _isAdminResolved.value = true
             if (admin) {
                 try {
                     catalogRepository.seedDefaultCatalogIfEmptyByAdmin()

@@ -22,9 +22,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Storefront
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -85,6 +88,10 @@ fun AdminConsoleScreen(
     customers: List<UserProfile>,
     reviews: List<ServiceReview>,
     businessSettings: BusinessSettings,
+    isRootMode: Boolean = false,
+    snackbarHostState: androidx.compose.material3.SnackbarHostState? = null,
+    onSwitchToCustomerView: (() -> Unit)? = null,
+    onSignOut: (() -> Unit)? = null,
     onBack: () -> Unit,
     onSeedCatalog: () -> Unit,
     onUpdateBooking: (Booking, BookingStatus, String) -> Unit,
@@ -100,24 +107,44 @@ fun AdminConsoleScreen(
     onUpdateCustomerStatus: (String, String) -> Unit
 ) {
     val strings = LocalAppStrings.current
-    BackHandler(onBack = onBack)
+    BackHandler(enabled = !isRootMode, onBack = onBack)
 
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("Reports", "Bookings", "Chats", "Catalog", "Business", "More")
 
     Scaffold(
+        snackbarHost = {
+            if (snackbarHostState != null) {
+                androidx.compose.material3.SnackbarHost(snackbarHostState)
+            }
+        },
         topBar = {
             TopAppBar(
                 title = { Text(strings.adminConsoleTitle) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                    if (!isRootMode) {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                        }
+                    }
+                },
+                actions = {
+                    if (onSwitchToCustomerView != null) {
+                        IconButton(onClick = onSwitchToCustomerView) {
+                            Icon(Icons.Rounded.Storefront, contentDescription = "Customer View")
+                        }
+                    }
+                    if (onSignOut != null) {
+                        IconButton(onClick = onSignOut) {
+                            Icon(Icons.AutoMirrored.Rounded.Logout, contentDescription = strings.logoutBtn)
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = DeepNavy,
                     titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White
+                    navigationIconContentColor = Color.White,
+                    actionIconContentColor = GoldenYellow
                 )
             )
         }
@@ -399,17 +426,20 @@ private fun AdminCatalogTab(
     onSaveService: (String?, String, String, String, String, String, List<String>, List<String>, Double, String, String, String, Boolean) -> Unit,
     onDeleteService: (String) -> Unit
 ) {
+    var editingCat by remember { mutableStateOf<ServiceCategory?>(null) }
     var showNewCatDialog by remember { mutableStateOf(false) }
+    var editingSvc by remember { mutableStateOf<ServiceItem?>(null) }
     var showNewSvcDialog by remember { mutableStateOf(false) }
 
-    if (showNewCatDialog) {
-        var nameEn by remember { mutableStateOf("") }
-        var nameBn by remember { mutableStateOf("") }
-        var descEn by remember { mutableStateOf("") }
-        var descBn by remember { mutableStateOf("") }
+    if (showNewCatDialog || editingCat != null) {
+        val target = editingCat
+        var nameEn by remember(target) { mutableStateOf(target?.nameEn ?: "") }
+        var nameBn by remember(target) { mutableStateOf(target?.nameBn ?: "") }
+        var descEn by remember(target) { mutableStateOf(target?.descriptionEn ?: "") }
+        var descBn by remember(target) { mutableStateOf(target?.descriptionBn ?: "") }
         AlertDialog(
-            onDismissRequest = { showNewCatDialog = false },
-            title = { Text("Add Service Category") },
+            onDismissRequest = { showNewCatDialog = false; editingCat = null },
+            title = { Text(if (target == null) "Add Service Category" else "Edit Service Category") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(nameEn, { nameEn = it }, label = { Text("Name (English)") })
@@ -423,33 +453,44 @@ private fun AdminCatalogTab(
                     onClick = {
                         if (nameEn.isNotBlank()) {
                             onSaveCategory(
-                                null, nameEn, nameBn.ifBlank { nameEn },
-                                descEn.ifBlank { nameEn }, descBn.ifBlank { nameBn.ifBlank { nameEn } },
-                                "electrical", "active", (categories.size + 1).toLong()
+                                target?.id,
+                                nameEn,
+                                nameBn.ifBlank { nameEn },
+                                descEn.ifBlank { nameEn },
+                                descBn.ifBlank { nameBn.ifBlank { nameEn } },
+                                target?.iconKey ?: "electrical",
+                                target?.status ?: "active",
+                                target?.sortOrder ?: (categories.size + 1).toLong()
                             )
                             showNewCatDialog = false
+                            editingCat = null
                         }
                     }
                 ) { Text("Save") }
             },
-            dismissButton = { TextButton(onClick = { showNewCatDialog = false }) { Text("Cancel") } }
+            dismissButton = {
+                TextButton(onClick = { showNewCatDialog = false; editingCat = null }) { Text("Cancel") }
+            }
         )
     }
 
-    if (showNewSvcDialog && categories.isNotEmpty()) {
-        var selectedCatId by remember { mutableStateOf(categories.first().id) }
-        var nameEn by remember { mutableStateOf("") }
-        var nameBn by remember { mutableStateOf("") }
-        var descEn by remember { mutableStateOf("") }
-        var priceText by remember { mutableStateOf("") }
+    if ((showNewSvcDialog || editingSvc != null) && categories.isNotEmpty()) {
+        val target = editingSvc
+        var selectedCatId by remember(target) { mutableStateOf(target?.categoryId ?: categories.first().id) }
+        var nameEn by remember(target) { mutableStateOf(target?.nameEn ?: "") }
+        var nameBn by remember(target) { mutableStateOf(target?.nameBn ?: "") }
+        var descEn by remember(target) { mutableStateOf(target?.descriptionEn ?: "") }
+        var descBn by remember(target) { mutableStateOf(target?.descriptionBn ?: "") }
+        var priceText by remember(target) { mutableStateOf(target?.priceDisplayEn ?: "") }
         AlertDialog(
-            onDismissRequest = { showNewSvcDialog = false },
-            title = { Text("Add Service") },
+            onDismissRequest = { showNewSvcDialog = false; editingSvc = null },
+            title = { Text(if (target == null) "Add Service" else "Edit Service") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.verticalScroll(rememberScrollState())) {
                     OutlinedTextField(nameEn, { nameEn = it }, label = { Text("Service Name (EN)") })
                     OutlinedTextField(nameBn, { nameBn = it }, label = { Text("Service Name (BN)") })
                     OutlinedTextField(descEn, { descEn = it }, label = { Text("Description (EN)") })
+                    OutlinedTextField(descBn, { descBn = it }, label = { Text("Description (BN)") })
                     OutlinedTextField(priceText, { priceText = it }, label = { Text("Estimated Price Display") })
                 }
             },
@@ -458,18 +499,29 @@ private fun AdminCatalogTab(
                     onClick = {
                         if (nameEn.isNotBlank()) {
                             onSaveService(
-                                null, selectedCatId, nameEn, nameBn.ifBlank { nameEn },
-                                descEn.ifBlank { nameEn }, descEn.ifBlank { nameEn },
-                                emptyList(), emptyList(), 0.0,
-                                priceText.ifBlank { "Inspection quote" }, priceText.ifBlank { "পরিদর্শন সাপেক্ষে" },
-                                "available", false
+                                target?.id,
+                                selectedCatId,
+                                nameEn,
+                                nameBn.ifBlank { nameEn },
+                                descEn.ifBlank { nameEn },
+                                descBn.ifBlank { descEn.ifBlank { nameEn } },
+                                target?.featuresEn ?: emptyList(),
+                                target?.featuresBn ?: emptyList(),
+                                target?.price ?: 0.0,
+                                priceText.ifBlank { "Inspection quote" },
+                                priceText.ifBlank { "পরিদর্শন সাপেক্ষে" },
+                                target?.availability ?: "available",
+                                target?.isPopular ?: false
                             )
                             showNewSvcDialog = false
+                            editingSvc = null
                         }
                     }
                 ) { Text("Save") }
             },
-            dismissButton = { TextButton(onClick = { showNewSvcDialog = false }) { Text("Cancel") } }
+            dismissButton = {
+                TextButton(onClick = { showNewSvcDialog = false; editingSvc = null }) { Text("Cancel") }
+            }
         )
     }
 
@@ -514,6 +566,9 @@ private fun AdminCatalogTab(
                         Text(cat.nameEn, style = MaterialTheme.typography.titleSmall)
                         Text("${cat.nameBn} • ${cat.status}", style = MaterialTheme.typography.bodySmall)
                     }
+                    IconButton(onClick = { editingCat = cat }) {
+                        Icon(Icons.Rounded.Edit, contentDescription = "Edit", tint = ElectricBlue)
+                    }
                     TextButton(
                         onClick = {
                             val next = if (cat.status == "active") "inactive" else "active"
@@ -536,6 +591,9 @@ private fun AdminCatalogTab(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(svc.nameEn, style = MaterialTheme.typography.titleSmall)
                         Text(svc.availability, style = MaterialTheme.typography.bodySmall)
+                    }
+                    IconButton(onClick = { editingSvc = svc }) {
+                        Icon(Icons.Rounded.Edit, contentDescription = "Edit", tint = ElectricBlue)
                     }
                     TextButton(
                         onClick = {
