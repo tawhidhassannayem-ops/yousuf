@@ -507,9 +507,8 @@ private fun attemptAutoSignIn(
         onAuthSuccess()
         return
     }
-    val clientId = try {
-        context.getString(R.string.default_web_client_id)
-    } catch (_: Exception) {
+    val clientId = resolveDefaultWebClientId(context)
+    if (clientId == null) {
         onUnauthenticated()
         return
     }
@@ -550,10 +549,9 @@ private fun onInteractiveSignInClicked(
     onAuthCancelled: () -> Unit,
     scope: CoroutineScope
 ) {
-    val clientId = try {
-        context.getString(R.string.default_web_client_id)
-    } catch (_: Exception) {
-        onAuthError("Sign-In configuration missing: default_web_client_id not found")
+    val clientId = resolveDefaultWebClientId(context)
+    if (clientId == null) {
+        onAuthError("Sign-In configuration missing (google-services.json not bundled)")
         return
     }
 
@@ -600,5 +598,20 @@ fun signOutUser(
                 onSignOutComplete()
             }
         }
+    }
+}
+
+@Suppress("DiscouragedApi")
+private fun resolveDefaultWebClientId(context: Context): String? {
+    val resId = context.resources.getIdentifier(
+        "default_web_client_id",
+        "string",
+        context.packageName
+    )
+    if (resId == 0) return null
+    return try {
+        context.getString(resId).takeIf { it.isNotBlank() }
+    } catch (_: Exception) {
+        null
     }
 }

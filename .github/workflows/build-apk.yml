@@ -44,9 +44,17 @@ jobs:
           echo "Using Android SDK at $SDK_DIR"
 
       - name: Prepare debug keystore and environment config
+        env:
+          DEBUG_KEYSTORE_SECRET: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
+          GOOGLE_SERVICES_JSON_SECRET: ${{ secrets.GOOGLE_SERVICES_JSON }}
+          GOOGLE_SERVICES_JSON_B64_SECRET: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
         run: |
-          if [ -f debug.keystore.base64 ]; then
+          if [ -n "$DEBUG_KEYSTORE_SECRET" ]; then
+            echo "$DEBUG_KEYSTORE_SECRET" | tr -d '\r\n' | base64 -d > debug.keystore
+            echo "Restored debug.keystore from DEBUG_KEYSTORE_BASE64 secret."
+          elif [ -f debug.keystore.base64 ]; then
             tr -d '\r\n' < debug.keystore.base64 | base64 -d > debug.keystore
+            echo "Decoded debug.keystore from repository debug.keystore.base64."
           elif [ ! -f debug.keystore ]; then
             keytool -genkeypair -v \
               -keystore debug.keystore \
@@ -58,6 +66,19 @@ jobs:
               -validity 10000 \
               -dname "CN=Android Debug,O=Android,C=US"
           fi
+
+          if [ -n "$GOOGLE_SERVICES_JSON_SECRET" ]; then
+            printf '%s\n' "$GOOGLE_SERVICES_JSON_SECRET" > app/google-services.json
+            echo "Restored app/google-services.json from GOOGLE_SERVICES_JSON secret."
+          elif [ -n "$GOOGLE_SERVICES_JSON_B64_SECRET" ]; then
+            echo "$GOOGLE_SERVICES_JSON_B64_SECRET" | tr -d '\r\n' | base64 -d > app/google-services.json
+            echo "Restored app/google-services.json from GOOGLE_SERVICES_JSON_BASE64 secret."
+          fi
+
+          if [ ! -f app/google-services.json ]; then
+            echo "WARNING: app/google-services.json is absent. APK will compile cleanly, but add GOOGLE_SERVICES_JSON secret for Firebase Auth & Firestore connectivity."
+          fi
+
           if [ ! -f .env ] && [ -f .env.example ]; then
             cp .env.example .env
           fi
@@ -101,4 +122,9 @@ jobs:
             echo "### Yusuf Electronics APK Build Ready"
             echo "- Direct APK download (Releases): look under **Releases -> latest-apk -> YusufElectronics-debug.apk**"
             echo "- Artifact download (Actions): **YusufElectronics-APK**"
+            if [ -f app/google-services.json ]; then
+              echo "- Firebase Config (`app/google-services.json`): **Bundled**"
+            else
+              echo "- Firebase Config (`app/google-services.json`): **Not bundled in GitHub repo** (add `GOOGLE_SERVICES_JSON` & `DEBUG_KEYSTORE_BASE64` in Repository Secrets or download APK from AI Studio Settings)"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"

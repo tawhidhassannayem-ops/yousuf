@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -203,15 +204,15 @@ class YusufMainViewModel(
     val selectedAdminConversationId: StateFlow<String?> = _selectedAdminConversationId.asStateFlow()
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val adminActiveMessages: StateFlow<List<ChatMessage>> = _selectedAdminConversationId
-        .flatMapLatest { convId ->
-            if (!convId.isNullOrBlank() && _isAdmin.value) {
-                chatRepository.observeMessages(convId).catch { emit(emptyList()) }
-            } else {
-                flowOf(emptyList())
-            }
+    val adminActiveMessages: StateFlow<List<ChatMessage>> = combine(_selectedAdminConversationId, _isAdmin) { convId, admin ->
+        convId to admin
+    }.flatMapLatest { (convId, admin) ->
+        if (!convId.isNullOrBlank() && admin) {
+            chatRepository.observeMessages(convId).catch { emit(emptyList()) }
+        } else {
+            flowOf(emptyList())
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), emptyList())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), emptyList())
 
     init {
         viewModelScope.launch {
@@ -552,17 +553,28 @@ class YusufMainViewModel(
     fun adminSelectConversation(conversationId: String?) {
         _selectedAdminConversationId.value = conversationId
         if (!conversationId.isNullOrBlank()) {
-            viewModelScope.launch {
-                chatRepository.markConversationReadByAdmin(conversationId)
-            }
+            markAdminConversationRead(conversationId)
         }
     }
 
-    fun adminSendReply(customerId: String, text: String, imageDataUri: String = "") {
+    fun markAdminConversationRead(conversationId: String) {
+        if (!_isAdmin.value || conversationId.isBlank()) return
+        viewModelScope.launch {
+            chatRepository.markConversationReadByAdmin(conversationId)
+        }
+    }
+
+    fun adminSendReply(
+        customerId: String,
+        text: String,
+        imageDataUri: String = "",
+        onSent: () -> Unit = {}
+    ) {
         if (text.isBlank() && imageDataUri.isBlank()) return
         viewModelScope.launch {
             try {
                 chatRepository.sendAdminReply(customerId, text, imageDataUri)
+                onSent()
             } catch (e: Exception) {
                 _actionError.value = e.localizedMessage
             }

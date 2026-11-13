@@ -177,6 +177,88 @@ class YusufRepositoryRuleTest : FirestoreEmulatorTestBase() {
         assertEquals(16, seededSvcs.size)
     }
 
+    @Test
+    fun chat_adminMonitoringAndRealTimeReply_succeeds() = runBlocking {
+        val customerEmail = "chatcust_${UUID.randomUUID()}@test.com"
+        val customerUid = signInTestUser(customerEmail)
+        val chatRepo = ChatRepository(firestore)
+        val businessRepo = BusinessAndReviewsRepository(firestore)
+
+        // 1. Customer sends message
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            chatRepo.sendCustomerMessage(
+                customerName = "Karim Mia",
+                customerUsername = "karim_mia",
+                text = "Need AC servicing tomorrow"
+            )
+        }
+
+        // 2. Sign in as verified bootstrapped admin
+        val adminUid = signInTestUser(UserRepository.BOOTSTRAPPED_ADMIN_EMAIL)
+        val url = URL("http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1/projects/demo-no-project/accounts:update")
+        val conn = (url.openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            doOutput = true
+            setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("Authorization", "Bearer owner")
+        }
+        conn.outputStream.use { out ->
+            out.write("""{"localId":"$adminUid","emailVerified":true}""".toByteArray())
+        }
+        assertEquals(200, conn.responseCode)
+        auth.signOut()
+        signInTestUser(UserRepository.BOOTSTRAPPED_ADMIN_EMAIL)
+
+        // Admin sees conversation immediately with unreadByAdmin == 1
+        val allConvs = withTimeout(FLOW_TIMEOUT_MS) {
+            chatRepo.observeAllConversationsByAdmin().first { list ->
+                list.any { it.id == customerUid && it.unreadByAdmin == 1L }
+            }
+        }
+        val customerConv = allConvs.first { it.id == customerUid }
+        assertEquals("Karim Mia", customerConv.customerName)
+        assertEquals("Need AC servicing tomorrow", customerConv.lastMessage)
+
+        // 3. Admin opens/reads chat -> clears unreadByAdmin & sets readAt on customer's message
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            chatRepo.markConversationReadByAdmin(customerUid)
+        }
+        val afterReadConv = withTimeout(FLOW_TIMEOUT_MS) {
+            chatRepo.observeConversation(customerUid).first { it != null && it.unreadByAdmin == 0L }
+        }
+        assertEquals(0L, afterReadConv?.unreadByAdmin)
+        val msgsAfterAdminRead = withTimeout(FLOW_TIMEOUT_MS) {
+            chatRepo.observeMessages(customerUid).first { list ->
+                list.any { it.senderRole == "customer" && it.readAt != null }
+            }
+        }
+        assertTrue(msgsAfterAdminRead.any { it.senderRole == "customer" && it.readAt != null })
+
+        // 4. Admin sends reply -> creates admin message and customer notification
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            chatRepo.sendAdminReply(
+                customerId = customerUid,
+                text = "Sure, our technician will visit at 10 AM."
+            )
+        }
+
+        // 5. Customer observes admin reply and notification
+        signInTestUser(customerEmail)
+        val custMessages = withTimeout(FLOW_TIMEOUT_MS) {
+            chatRepo.observeMessages(customerUid).first { list ->
+                list.any { it.senderRole == "admin" && it.text.contains("technician") }
+            }
+        }
+        assertEquals(2, custMessages.size)
+
+        val custNotifs = withTimeout(FLOW_TIMEOUT_MS) {
+            businessRepo.observeNotifications(customerUid).first { list ->
+                list.any { it.type == "message" && it.userId == customerUid }
+            }
+        }
+        assertTrue(custNotifs.isNotEmpty())
+    }
+
     private companion object {
         const val DEFAULT_TIMEOUT_MS = 15000L
         const val FLOW_TIMEOUT_MS = 10000L

@@ -1,10 +1,16 @@
 package com.example
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -65,6 +71,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.example.data.model.BookingStatus
 import com.example.data.model.UserProfile
 import com.example.data.preferences.AppLanguage
 import com.example.data.preferences.UserPreferencesRepository
@@ -217,8 +224,37 @@ private fun AuthenticatedRoot(
     val notifications by viewModel.notifications.collectAsStateWithLifecycle()
     val notificationsEnabled by viewModel.notificationsEnabled.collectAsStateWithLifecycle()
 
+    val adminBookings by viewModel.adminAllBookings.collectAsStateWithLifecycle()
+    val adminConversations by viewModel.adminAllConversations.collectAsStateWithLifecycle()
+    val adminSelectedConvId by viewModel.selectedAdminConversationId.collectAsStateWithLifecycle()
+    val adminActiveMessages by viewModel.adminActiveMessages.collectAsStateWithLifecycle()
+    val adminCustomers by viewModel.adminAllCustomers.collectAsStateWithLifecycle()
+    val adminReviews by viewModel.adminAllReviews.collectAsStateWithLifecycle()
+
     var adminDirectMode by rememberSaveable(user.uid) { mutableStateOf(true) }
     val adminSnackbarHostState = remember { SnackbarHostState() }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = {}
+    )
+    var askedNotificationPermission by rememberSaveable(user.uid) { mutableStateOf(false) }
+    LaunchedEffect(notificationsEnabled, askedNotificationPermission) {
+        if (
+            notificationsEnabled &&
+            !askedNotificationPermission &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+        ) {
+            val granted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                askedNotificationPermission = true
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
 
     LaunchedEffect(isAdmin, adminDirectMode, actionError, actionMessage) {
         if (isAdmin && adminDirectMode) {
@@ -253,6 +289,94 @@ private fun AuthenticatedRoot(
         }
     }
 
+    // Real-time Admin device alerts when any customer sends a message or creates a pending booking
+    val prevConvSnapshot = remember(user.uid) { mutableStateOf<Map<String, Pair<Long, Long>>?>(null) }
+    LaunchedEffect(isAdmin) {
+        if (isAdmin && prevConvSnapshot.value == null) {
+            kotlinx.coroutines.delay(2500L)
+            if (prevConvSnapshot.value == null) {
+                prevConvSnapshot.value = emptyMap()
+            }
+        }
+    }
+    LaunchedEffect(isAdmin, adminConversations, notificationsEnabled, adminDirectMode, adminSelectedConvId) {
+        if (!isAdmin) return@LaunchedEffect
+        val currentMap = adminConversations.associate { conv ->
+            conv.id to (conv.unreadByAdmin to (conv.lastMessageAt?.toDate()?.time ?: 0L))
+        }
+        val prev = prevConvSnapshot.value
+        if (prev == null) {
+            if (adminConversations.isNotEmpty()) {
+                prevConvSnapshot.value = currentMap
+            }
+        } else {
+            if (notificationsEnabled) {
+                adminConversations.forEach { conv ->
+                    val old = prev[conv.id]
+                    val newTs = conv.lastMessageAt?.toDate()?.time ?: 0L
+                    val hasNewUnread = conv.unreadByAdmin > 0L && (
+                        old == null ||
+                            conv.unreadByAdmin > old.first ||
+                            newTs > old.second
+                        )
+                    val currentlyViewing = adminDirectMode && adminSelectedConvId == conv.id
+                    if (hasNewUnread && !currentlyViewing) {
+                        LocalNotificationHelper.showNotification(
+                            context = context,
+                            idSeed = "admin_chat_${conv.id}",
+                            title = if (strings.isBangla) {
+                                "নতুন গ্রাহক মেসেজ: ${conv.customerName}"
+                            } else {
+                                "New Message from ${conv.customerName}"
+                            },
+                            body = conv.lastMessage.ifBlank { "Sent an attachment" }
+                        )
+                    }
+                }
+            }
+            prevConvSnapshot.value = currentMap
+        }
+    }
+
+    val knownAdminBookingIds = remember(user.uid) { mutableStateOf<Set<String>?>(null) }
+    LaunchedEffect(isAdmin) {
+        if (isAdmin && knownAdminBookingIds.value == null) {
+            kotlinx.coroutines.delay(2500L)
+            if (knownAdminBookingIds.value == null) {
+                knownAdminBookingIds.value = emptySet()
+            }
+        }
+    }
+    LaunchedEffect(isAdmin, adminBookings, notificationsEnabled) {
+        if (!isAdmin) return@LaunchedEffect
+        val currentIds = adminBookings.map { it.id }.toSet()
+        val prev = knownAdminBookingIds.value
+        if (prev == null) {
+            if (adminBookings.isNotEmpty()) {
+                knownAdminBookingIds.value = currentIds
+            }
+        } else {
+            if (notificationsEnabled) {
+                adminBookings
+                    .filter { it.id !in prev && it.statusEnum() == BookingStatus.PENDING }
+                    .take(3)
+                    .forEach { b ->
+                        LocalNotificationHelper.showNotification(
+                            context = context,
+                            idSeed = "admin_booking_${b.id}",
+                            title = if (strings.isBangla) {
+                                "নতুন বুকিং: ${b.bookingCode}"
+                            } else {
+                                "New Booking: ${b.bookingCode}"
+                            },
+                            body = "${b.customerName} • ${b.serviceNameEn}"
+                        )
+                    }
+            }
+            knownAdminBookingIds.value = prev + currentIds
+        }
+    }
+
     if (!isAdminResolved) {
         Box(
             contentAlignment = Alignment.Center,
@@ -273,12 +397,6 @@ private fun AuthenticatedRoot(
         val categoriesState by viewModel.categoriesState.collectAsStateWithLifecycle()
         val servicesState by viewModel.servicesState.collectAsStateWithLifecycle()
         val businessSettings by viewModel.businessSettings.collectAsStateWithLifecycle()
-        val adminBookings by viewModel.adminAllBookings.collectAsStateWithLifecycle()
-        val adminConversations by viewModel.adminAllConversations.collectAsStateWithLifecycle()
-        val adminSelectedConvId by viewModel.selectedAdminConversationId.collectAsStateWithLifecycle()
-        val adminActiveMessages by viewModel.adminActiveMessages.collectAsStateWithLifecycle()
-        val adminCustomers by viewModel.adminAllCustomers.collectAsStateWithLifecycle()
-        val adminReviews by viewModel.adminAllReviews.collectAsStateWithLifecycle()
 
         val categories = (categoriesState as? UiState.Success)?.data ?: emptyList()
         val services = (servicesState as? UiState.Success)?.data ?: emptyList()
@@ -301,8 +419,9 @@ private fun AuthenticatedRoot(
             onSeedCatalog = viewModel::adminSeedDefaultCatalog,
             onUpdateBooking = viewModel::adminUpdateBookingStatus,
             onSelectConversation = viewModel::adminSelectConversation,
-            onSendReply = { customerId, text ->
-                viewModel.adminSendReply(customerId, text)
+            onMarkConversationRead = viewModel::markAdminConversationRead,
+            onSendReply = { customerId, text, imageUri, onSent ->
+                viewModel.adminSendReply(customerId, text, imageUri, onSent)
             },
             onSaveCategory = viewModel::adminSaveCategory,
             onDeleteCategory = viewModel::adminDeleteCategory,
@@ -565,8 +684,9 @@ private fun YusufAppShell(
                     onSeedCatalog = viewModel::adminSeedDefaultCatalog,
                     onUpdateBooking = viewModel::adminUpdateBookingStatus,
                     onSelectConversation = viewModel::adminSelectConversation,
-                    onSendReply = { customerId, text ->
-                        viewModel.adminSendReply(customerId, text)
+                    onMarkConversationRead = viewModel::markAdminConversationRead,
+                    onSendReply = { customerId, text, imageUri, onSent ->
+                        viewModel.adminSendReply(customerId, text, imageUri, onSent)
                     },
                     onSaveCategory = viewModel::adminSaveCategory,
                     onDeleteCategory = viewModel::adminDeleteCategory,

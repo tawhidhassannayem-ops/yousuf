@@ -248,14 +248,31 @@ class ChatRepository(private val db: FirebaseFirestore) {
     }
 
     suspend fun markConversationReadByAdmin(conversationId: String) {
-        requireUserId()
+        val adminUid = requireUserId()
         val convRef = db.collection("conversations").document(conversationId)
         try {
-            convRef.update("unreadByAdmin", 0L).await()
+            val convSnap = convRef.get().await()
+            if (convSnap.exists() && (convSnap.getLong("unreadByAdmin") ?: 0L) > 0L) {
+                convRef.update("unreadByAdmin", 0L).await()
+            }
+            val unreadMsgs = convRef.collection("messages")
+                .whereEqualTo("senderRole", "customer")
+                .get()
+                .await()
+            val toMark = unreadMsgs.documents.filter { it.getTimestamp("readAt") == null }
+            toMark.chunked(8).forEach { chunk ->
+                val batch = db.batch()
+                chunk.forEach { doc ->
+                    batch.update(doc.reference, "readAt", FieldValue.serverTimestamp())
+                }
+                batch.commit().await()
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.UPDATE, convRef.path)
+            if (auth.currentUser?.uid == adminUid) {
+                handleFirestoreError(e, OperationType.UPDATE, convRef.path)
+            }
         }
     }
 }
