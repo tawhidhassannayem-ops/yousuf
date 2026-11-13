@@ -1,0 +1,43 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidImage() {
+      return request.resource != null
+        && request.resource.size <= 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    function isAdminClaim() {
+      return isSignedIn() && request.auth.token.admin == true;
+    }
+
+    // Customer profile avatars
+    match /users/{userId}/profile/{fileName} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdminClaim());
+      allow write: if isSignedIn() && request.auth.uid == userId && isValidImage();
+    }
+
+    // Booking problem photos (path scoped by customerId)
+    match /bookings/{userId}/{bookingId}/{fileName} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdminClaim());
+      allow write: if isSignedIn() && request.auth.uid == userId && isValidImage();
+    }
+
+    // Live chat photo attachments (conversationId == customerId)
+    match /chats/{customerId}/{fileName} {
+      allow read: if isSignedIn() && (request.auth.uid == customerId || isAdminClaim());
+      allow write: if isSignedIn() && (request.auth.uid == customerId || isAdminClaim()) && isValidImage();
+    }
+
+    // Service catalog banners & category icons (admin-managed, authenticated read)
+    match /catalog/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isAdminClaim() && isValidImage();
+    }
+  }
+}

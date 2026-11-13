@@ -1,0 +1,6 @@
+{
+  "name": "Yusuf Electronics",
+  "description": "Professional electrical, AC, CCTV, plumbing, and home repair services booking and real-time customer support application.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

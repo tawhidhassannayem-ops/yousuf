@@ -1,0 +1,279 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Customer account profile stored in /users/{userId}. Clients must submit FieldValue.serverTimestamp() for timestamps.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID" },
+        "fullName": { "type": "string", "description": "Customer full name" },
+        "username": { "type": "string", "description": "Unique lowercase username" },
+        "email": { "type": "string", "description": "Customer email address" },
+        "phone": { "type": "string", "description": "Optional phone number" },
+        "profileImage": { "type": "string", "description": "Optional avatar URL or bounded Base64 thumbnail" },
+        "address": { "type": "string", "description": "Optional residential address" },
+        "role": { "type": "string", "enum": ["customer"], "description": "Server-protected role" },
+        "accountStatus": { "type": "string", "enum": ["active", "suspended"], "description": "Account status" },
+        "preferredLanguage": { "type": "string", "enum": ["bn", "en"], "description": "UI language preference" },
+        "notificationsEnabled": { "type": "boolean", "description": "In-app and push notification toggle" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["userId", "fullName", "username", "email", "role", "accountStatus", "createdAt", "updatedAt"]
+    },
+    "UsernameClaim": {
+      "title": "UsernameClaim",
+      "description": "Uniqueness index for customer usernames at /usernames/{username}.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owning Firebase Auth UID" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["userId", "createdAt"]
+    },
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Authorized admin record managed exclusively by super admin.",
+      "type": "object",
+      "properties": {
+        "adminId": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["super_admin", "admin"] },
+        "permissions": { "type": "array" },
+        "status": { "type": "string", "enum": ["active", "inactive"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["adminId", "name", "email", "role", "status", "createdAt"]
+    },
+    "ServiceCategory": {
+      "title": "ServiceCategory",
+      "description": "Dynamic bilingual electrical & home service category.",
+      "type": "object",
+      "properties": {
+        "nameEn": { "type": "string" },
+        "nameBn": { "type": "string" },
+        "descriptionEn": { "type": "string" },
+        "descriptionBn": { "type": "string" },
+        "iconKey": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "inactive"] },
+        "sortOrder": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["nameEn", "nameBn", "descriptionEn", "descriptionBn", "status", "sortOrder", "createdAt", "updatedAt"]
+    },
+    "ServiceItem": {
+      "title": "ServiceItem",
+      "description": "Dynamic bilingual service belonging to a category.",
+      "type": "object",
+      "properties": {
+        "categoryId": { "type": "string" },
+        "nameEn": { "type": "string" },
+        "nameBn": { "type": "string" },
+        "descriptionEn": { "type": "string" },
+        "descriptionBn": { "type": "string" },
+        "featuresEn": { "type": "array" },
+        "featuresBn": { "type": "array" },
+        "imageUrl": { "type": "string" },
+        "price": { "type": "number" },
+        "priceType": { "type": "string", "enum": ["fixed", "range", "estimate"] },
+        "priceDisplayEn": { "type": "string" },
+        "priceDisplayBn": { "type": "string" },
+        "availability": { "type": "string", "enum": ["available", "unavailable"] },
+        "isPopular": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["categoryId", "nameEn", "nameBn", "descriptionEn", "descriptionBn", "availability", "isPopular", "createdAt", "updatedAt"]
+    },
+    "Conversation": {
+      "title": "Conversation",
+      "description": "Customer-to-Yusuf-Electronics support conversation.",
+      "type": "object",
+      "properties": {
+        "customerId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerUsername": { "type": "string" },
+        "assignedAdminId": { "type": "string" },
+        "lastMessage": { "type": "string" },
+        "lastMessageAt": { "type": "string", "format": "date-time" },
+        "unreadByCustomer": { "type": "integer" },
+        "unreadByAdmin": { "type": "integer" },
+        "status": { "type": "string", "enum": ["open", "closed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["customerId", "customerName", "lastMessage", "lastMessageAt", "unreadByCustomer", "unreadByAdmin", "status", "createdAt"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Real-time message inside /conversations/{conversationId}/messages/{messageId}.",
+      "type": "object",
+      "properties": {
+        "conversationId": { "type": "string" },
+        "customerId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderRole": { "type": "string", "enum": ["customer", "admin"] },
+        "messageType": { "type": "string", "enum": ["text", "image"] },
+        "text": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "sentAt": { "type": "string", "format": "date-time" },
+        "readAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["conversationId", "customerId", "senderId", "senderRole", "messageType", "text", "sentAt"]
+    },
+    "Booking": {
+      "title": "Booking",
+      "description": "Service booking record created by a customer and managed by admins.",
+      "type": "object",
+      "properties": {
+        "bookingCode": { "type": "string" },
+        "customerId": { "type": "string" },
+        "serviceId": { "type": "string" },
+        "categoryId": { "type": "string" },
+        "serviceNameEn": { "type": "string" },
+        "serviceNameBn": { "type": "string" },
+        "categoryNameEn": { "type": "string" },
+        "categoryNameBn": { "type": "string" },
+        "customerName": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "cityArea": { "type": "string" },
+        "description": { "type": "string" },
+        "imageUrls": { "type": "array" },
+        "preferredDate": { "type": "string" },
+        "preferredTime": { "type": "string" },
+        "bookingStatus": { "type": "string", "enum": ["pending", "accepted", "rejected", "scheduled", "in_progress", "completed", "cancelled"] },
+        "adminNotes": { "type": "string" },
+        "hasReview": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["bookingCode", "customerId", "serviceId", "categoryId", "customerName", "phone", "address", "cityArea", "description", "preferredDate", "preferredTime", "bookingStatus", "hasReview", "createdAt", "updatedAt"]
+    },
+    "AppNotification": {
+      "title": "AppNotification",
+      "description": "User-scoped or global announcement notification.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "titleEn": { "type": "string" },
+        "titleBn": { "type": "string" },
+        "bodyEn": { "type": "string" },
+        "bodyBn": { "type": "string" },
+        "type": { "type": "string", "enum": ["booking", "message", "announcement"] },
+        "relatedId": { "type": "string" },
+        "isRead": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "titleEn", "titleBn", "bodyEn", "bodyBn", "type", "isRead", "createdAt"]
+    },
+    "ServiceReview": {
+      "title": "ServiceReview",
+      "description": "Customer review tied to a completed booking.",
+      "type": "object",
+      "properties": {
+        "customerId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "bookingId": { "type": "string" },
+        "serviceId": { "type": "string" },
+        "serviceNameEn": { "type": "string" },
+        "serviceNameBn": { "type": "string" },
+        "rating": { "type": "integer" },
+        "comment": { "type": "string" },
+        "approvalStatus": { "type": "string", "enum": ["approved", "pending", "hidden"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["customerId", "customerName", "bookingId", "serviceId", "rating", "comment", "approvalStatus", "createdAt"]
+    },
+    "BusinessSettings": {
+      "title": "BusinessSettings",
+      "description": "Admin-configurable business profile, contact details, and live availability status.",
+      "type": "object",
+      "properties": {
+        "businessName": { "type": "string" },
+        "taglineEn": { "type": "string" },
+        "taglineBn": { "type": "string" },
+        "phoneNumber": { "type": "string" },
+        "whatsappNumber": { "type": "string" },
+        "email": { "type": "string" },
+        "addressEn": { "type": "string" },
+        "addressBn": { "type": "string" },
+        "mapsQueryUrl": { "type": "string" },
+        "workingHoursEn": { "type": "string" },
+        "workingHoursBn": { "type": "string" },
+        "availabilityStatus": { "type": "string", "enum": ["online", "busy", "offline"] },
+        "serviceAreasEn": { "type": "string" },
+        "serviceAreasBn": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["businessName", "availabilityStatus", "workingHoursEn", "workingHoursBn", "updatedAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Immutable audit log entry for administrative actions.",
+      "type": "object",
+      "properties": {
+        "actorId": { "type": "string" },
+        "actorEmail": { "type": "string" },
+        "action": { "type": "string" },
+        "targetCollection": { "type": "string" },
+        "targetId": { "type": "string" },
+        "details": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["actorId", "action", "targetCollection", "targetId", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Customer profile records isolated per authenticated user."
+    },
+    "/usernames/{username}": {
+      "schema": { "$ref": "#/entities/UsernameClaim" },
+      "description": "Username uniqueness registry."
+    },
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/AdminUser" },
+      "description": "Authorized admin accounts controlled by super admin."
+    },
+    "/service_categories/{categoryId}": {
+      "schema": { "$ref": "#/entities/ServiceCategory" },
+      "description": "Dynamic service categories."
+    },
+    "/services/{serviceId}": {
+      "schema": { "$ref": "#/entities/ServiceItem" },
+      "description": "Dynamic electrical & home services."
+    },
+    "/conversations/{conversationId}": {
+      "schema": { "$ref": "#/entities/Conversation" },
+      "description": "Customer-to-admin support conversation summaries."
+    },
+    "/conversations/{conversationId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "Real-time messages within a customer conversation."
+    },
+    "/bookings/{bookingId}": {
+      "schema": { "$ref": "#/entities/Booking" },
+      "description": "Customer service bookings and status tracking."
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/AppNotification" },
+      "description": "Customer notifications and announcements."
+    },
+    "/reviews/{reviewId}": {
+      "schema": { "$ref": "#/entities/ServiceReview" },
+      "description": "Verified customer service reviews."
+    },
+    "/business_settings/{settingId}": {
+      "schema": { "$ref": "#/entities/BusinessSettings" },
+      "description": "Business status, hours, and admin-configurable contact info."
+    },
+    "/audit_logs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Append-only administrative audit logs."
+    }
+  }
+}
